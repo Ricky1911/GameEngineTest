@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <RunWorkingDirectory>$(MSBuildThisFileDirectory)../..</RunWorkingDirectory>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Arena.Engine/Arena.Engine.csproj" />
+    <ProjectReference Include="../Arena.Game.HideAndSeek/Arena.Game.HideAndSeek.csproj" />
+    <ProjectReference Include="../Arena.Protocol/Arena.Protocol.csproj" />
+    <ProjectReference Include="../Arena.Rendering/Arena.Rendering.csproj" />
+    <PackageReference Include="Grpc.AspNetCore" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,63 @@
+syntax = "proto3";
+package arena.v1;
+option csharp_namespace = "Arena.Protocol";
+
+// Competitors receive one agent token. Identity comes from the token, not an agent ID in the request.
+service AgentGateway {
+  rpc Observe (ObserveRequest) returns (Snapshot);
+  rpc SubmitAction (ActionRequest) returns (ActionReceipt);
+}
+
+// Only the local match runner/referee receives this token.
+service RefereeGateway {
+  rpc Inspect (RefereeRequest) returns (Snapshot);
+  rpc Step (StepRequest) returns (Snapshot);
+  rpc Reset (ResetRequest) returns (Snapshot);
+}
+
+message ObserveRequest { string token = 1; }
+message RefereeRequest { string token = 1; }
+message Vector3 { float x = 1; float y = 2; float z = 3; }
+message Color { uint32 r = 1; uint32 g = 2; uint32 b = 3; uint32 a = 4; }
+enum Shape { BOX = 0; SPHERE = 1; }
+message Entity {
+  int32 id = 1;
+  string kind = 2;
+  int32 agent_id = 3;
+  string team = 4;
+  Vector3 position = 5;
+  Vector3 size = 6;
+  Color color = 7;
+  bool solid = 8;
+  Shape shape = 9;
+}
+message Event { string kind = 1; string message = 2; }
+message Snapshot {
+  int64 episode = 1;
+  int64 frame = 2;
+  int32 tick_rate = 3;
+  string game_id = 4;
+  int32 observer_id = 5; // 0 = referee; positive = own agent ID
+  string phase = 6;
+  bool finished = 7;
+  string winner = 8;
+  int32 remaining_ticks = 9;
+  repeated Entity entities = 10;
+  repeated Event events = 11; // events of this completed frame, not a durable event stream
+  optional int32 seed = 12; // referee only; never exposes spawn randomness to competitors
+}
+message ActionRequest {
+  string token = 1;
+  int64 episode = 2;
+  int64 target_frame = 3;
+  Vector3 move = 4; // length clamped to 1; the example game uses X/Z
+  string ability = 5; // reserved for game-specific actions; unused in this example
+}
+message ActionReceipt { int64 episode = 1; int64 target_frame = 2; }
+message StepRequest {
+  string token = 1;
+  int64 episode = 2;
+  int64 expected_frame = 3;
+  int32 count = 4; // 1..600; manual mode only
+}
+message ResetRequest { string token = 1; int32 seed = 2; }

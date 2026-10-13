@@ -1,0 +1,15 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Arena.Engine/Arena.Engine.csproj" />
+    <Project Path="src/Arena.Game.HideAndSeek/Arena.Game.HideAndSeek.csproj" />
+    <Project Path="src/Arena.Protocol/Arena.Protocol.csproj" />
+    <Project Path="src/Arena.Rendering/Arena.Rendering.csproj" />
+    <Project Path="src/Arena.Demo/Arena.Demo.csproj" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/Arena.Bot/Arena.Bot.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Arena.Tests/Arena.Tests.csproj" />
+  </Folder>
+</Solution>

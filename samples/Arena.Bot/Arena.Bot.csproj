@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Arena.Protocol/Arena.Protocol.csproj" />
+    <ProjectReference Include="../../src/Arena.Game.HideAndSeek/Arena.Game.HideAndSeek.csproj" />
+    <PackageReference Include="Grpc.Net.Client" />
+  </ItemGroup>
+</Project>
