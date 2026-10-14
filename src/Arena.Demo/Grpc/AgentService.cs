@@ -4,10 +4,14 @@ using Grpc.Core;
 
 namespace Arena.Demo.Grpc;
 
-public sealed class AgentService(GameSimulation simulation, AccessTokens tokens) : AgentGateway.AgentGatewayBase
+public sealed class AgentService(SimulationDispatcher dispatcher, AccessTokens tokens) : AgentGateway.AgentGatewayBase
 {
     public override Task<Protocol.ImageObservation> Observe(ObserveRequest request, ServerCallContext context) =>
-        ProtocolMapping.Invoke(() => ProtocolMapping.Map(simulation.Observe(tokens.AgentId(request.Token))));
+        ProtocolMapping.Invoke(() =>
+        {
+            var agentId = tokens.AgentId(request.Token);
+            return dispatcher.InvokeAsync(simulation => ProtocolMapping.Map(simulation.Observe(agentId)), context.CancellationToken);
+        });
 
     public override Task<ActionReceipt> SubmitAction(ActionRequest request, ServerCallContext context) =>
         ProtocolMapping.Invoke(() =>
@@ -15,7 +19,10 @@ public sealed class AgentService(GameSimulation simulation, AccessTokens tokens)
             var agentId = tokens.AgentId(request.Token);
             var move = request.Move is null ? System.Numerics.Vector3.Zero
                 : new System.Numerics.Vector3(request.Move.X, request.Move.Y, request.Move.Z);
-            simulation.Submit(agentId, request.Episode, request.TargetFrame, new AgentAction(move, request.Ability, request.Turn));
-            return new ActionReceipt { Episode = request.Episode, TargetFrame = request.TargetFrame };
+            return dispatcher.InvokeAsync(simulation =>
+            {
+                simulation.Submit(agentId, request.Episode, request.TargetFrame, new AgentAction(move, request.Ability, request.Turn));
+                return new ActionReceipt { Episode = request.Episode, TargetFrame = request.TargetFrame };
+            }, context.CancellationToken);
         });
 }

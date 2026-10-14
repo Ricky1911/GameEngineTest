@@ -1,6 +1,7 @@
 using Arena.Protocol;
 using Grpc.Core;
 using Grpc.Net.Client;
+using System.Diagnostics;
 
 namespace Arena.Bot;
 
@@ -67,10 +68,13 @@ internal static class Program
         // The runner owns the referee token; each Decide call receives only its agent's observation.
         var state = await referee.ResetAsync(new ResetRequest { Token = options.RefereeToken, Seed = options.Seed }, deadline: Deadline(), cancellationToken: stop);
         Console.WriteLine($"Image-only match started: episode {state.Episode}, seed {options.Seed}, {state.TickRate} Hz.");
+        var clock = Stopwatch.StartNew();
+        long receivedBytes = 0;
         while (!state.Finished && state.Frame < options.MaxFrames)
         {
             var observations = await Task.WhenAll(tokens.Select(token => client.ObserveAsync(
                 new ObserveRequest { Token = token }, deadline: Deadline(), cancellationToken: stop).ResponseAsync));
+            receivedBytes += observations.Sum(o => (long)o.Rgb24.Length);
             if (observations.Any(o => o.Frame != state.Frame || o.Episode != state.Episode))
                 throw new InvalidOperationException("Match runner requires a server with --manual and exclusive referee control.");
             await Task.WhenAll(observations.Select((o, index) => client.SubmitActionAsync(
@@ -83,6 +87,7 @@ internal static class Program
             if (options.DelayMs > 0) await Task.Delay(options.DelayMs, stop);
         }
         if (!state.Finished) Console.WriteLine("Frame limit reached before the round finished.");
+        Console.WriteLine($"Completed {state.Frame} decision frames in {clock.Elapsed.TotalSeconds:0.00}s ({state.Frame / Math.Max(0.001, clock.Elapsed.TotalSeconds):0.0} frames/s), received {receivedBytes / 1048576d:0.0} MiB RGB; includes both agents, RPC and configured delays.");
         return state.Finished ? 0 : 2;
     }
 

@@ -30,7 +30,7 @@ message ImageObservation {
 message RefereeRequest { string token = 1; }
 message Vector3 { float x = 1; float y = 2; float z = 3; }
 message Color { uint32 r = 1; uint32 g = 2; uint32 b = 3; uint32 a = 4; }
-enum Shape { BOX = 0; SPHERE = 1; }
+enum Shape { BOX = 0; SPHERE = 1; CAPSULE = 2; }
 message Entity {
   int32 id = 1;
   string kind = 2;
@@ -63,7 +63,7 @@ message ActionRequest {
   int64 episode = 2;
   int64 target_frame = 3;
   Vector3 move = 4; // length clamped to 1; demo: X=strafe right, Z=forward, Y=unused
-  string ability = 5; // reserved for game-specific actions; unused in this example
+  string ability = 5; // game-specific; demo supports "jump" when grounded
   float turn = 6; // [-1,1], positive turns right; demo maximum = 180 degrees/sec
 }
 message ActionReceipt { int64 episode = 1; int64 target_frame = 2; }

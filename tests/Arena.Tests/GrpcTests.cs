@@ -25,7 +25,7 @@ public sealed class GrpcTests
             Assert.Equal(320 * 180 * 3, observation.Rgb24.Length);
             Assert.All(observation.Rgb24.ToByteArray(), b => Assert.Equal(0, b));
             var hiderImage = await agent.ObserveAsync(new ObserveRequest { Token = tokens.Hider });
-            var engineImage = app.Services.GetRequiredService<Engine.GameSimulation>().Observe(2);
+            var engineImage = await app.Services.GetRequiredService<Engine.SimulationDispatcher>().InvokeAsync(s => s.Observe(2));
             Assert.Equal(engineImage.Image.Pixels.ToArray(), hiderImage.Rgb24.ToByteArray());
             Assert.Contains(hiderImage.Rgb24.ToByteArray(), b => b != 0);
             // Schema whitelist prevents accidental reintroduction of structured game-state fields.
@@ -40,6 +40,9 @@ public sealed class GrpcTests
             var all = await referee.InspectAsync(new RefereeRequest { Token = tokens.Referee });
             Assert.Equal(42, all.Seed);
             Assert.Equal(2, all.Entities.Count(e => e.AgentId != 0));
+            await Task.Delay(100);
+            var idle = await referee.InspectAsync(new RefereeRequest { Token = tokens.Referee });
+            Assert.Equal(all, idle); // Wall time and rendering must not move a manually stepped world.
             var before = all.Entities.Single(e => e.AgentId == 2).Position.X;
             var action = new ActionRequest
             {

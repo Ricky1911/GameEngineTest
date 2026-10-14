@@ -8,5 +8,12 @@
     <ProjectReference Include="../Arena.Protocol/Arena.Protocol.csproj" />
     <ProjectReference Include="../Arena.Rendering/Arena.Rendering.csproj" />
     <PackageReference Include="Grpc.AspNetCore" />
+    <PackageReference Include="Stride.AssetCompiler" IncludeAssets="build;buildTransitive" />
   </ItemGroup>
+  <!-- The asset compiler scans this Web assembly and needs its ASP.NET Core shared framework. -->
+  <Target Name="ConfigureStrideCompilerRuntime" BeforeTargets="_StridePrepareAssetCompiler">
+    <PropertyGroup>
+      <StrideAssetCompilerHost>dotnet exec --runtimeconfig &quot;$(TargetDir)$(AssemblyName).runtimeconfig.json&quot;</StrideAssetCompilerHost>
+    </PropertyGroup>
+  </Target>
 </Project>

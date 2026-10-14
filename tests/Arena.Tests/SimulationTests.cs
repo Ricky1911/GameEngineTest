@@ -4,7 +4,8 @@ using Arena.Game.HideAndSeek;
 
 namespace Arena.Tests;
 
-public sealed class SimulationTests
+[Collection("Stride")]
+public sealed class SimulationTests(StrideFixture fixture)
 {
     [Fact]
     public void ActionsExecuteOnlyOnTargetFrameAndDoNotPersist()
@@ -51,9 +52,29 @@ public sealed class SimulationTests
     }
 
     [Fact]
-    public void SameSeedAndActionsProduceSameSnapshotsAfterReset()
+    public async Task CancelledQueuedStepDoesNotMutateTheWorldOrBlockLaterCommands()
     {
-        var simulation = new GameSimulation(new HideAndSeekGame());
+        using var dispatcher = new SimulationDispatcher();
+        using var stop = new CancellationTokenSource();
+        var simulation = new GameSimulation(new MovementGame());
+        var initial = simulation.Snapshot();
+        var cancelled = dispatcher.InvokeAsync(s => s.Advance(initial.Episode, 0, 1), stop.Token);
+        stop.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await cancelled);
+        dispatcher.Drain(simulation);
+        Assert.Equal(0, simulation.Snapshot().Frame);
+        var next = dispatcher.InvokeAsync(s => s.Advance(initial.Episode, 0, 1));
+        dispatcher.Drain(simulation);
+        Assert.Equal(1, (await next).Frame);
+        var pending = dispatcher.InvokeAsync(s => s.Snapshot());
+        dispatcher.Complete();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await pending);
+    }
+
+    [Fact]
+    public Task SameSeedAndActionsProduceSameSnapshotsAfterReset() => fixture.Run((physics, renderer) =>
+    {
+        var simulation = new GameSimulation(new HideAndSeekGame(physics), renderer: renderer);
         var first = Play();
         simulation.Reset(42);
         var second = Play();
@@ -70,25 +91,25 @@ public sealed class SimulationTests
             }
             return simulation.Snapshot().View.Entities.ToArray();
         }
-    }
+    });
 
     [Fact]
-    public void TimeoutEndsRoundAndStopsTheFrameCounter()
+    public Task TimeoutEndsRoundAndStopsTheFrameCounter() => fixture.Run((physics, renderer) =>
     {
-        var simulation = new GameSimulation(new HideAndSeekGame(new(4, 0)), tickRate: 20);
+        var simulation = new GameSimulation(new HideAndSeekGame(physics, new(4, 0)), tickRate: 20, renderer: renderer);
         var state = simulation.Advance(simulation.Snapshot().Episode, 0, 200);
         Assert.True(state.View.Finished);
         Assert.Equal("hiders", state.View.Winner);
         Assert.Equal(80, state.Frame);
         simulation.Tick();
         Assert.Equal(80, simulation.Snapshot().Frame);
-    }
+    });
 
     [Fact]
-    public void CatchingEndsRoundWithSeekerWinner()
+    public Task CatchingEndsRoundWithSeekerWinner() => fixture.Run((physics, renderer) =>
     {
         // Referee-driven route around cover, independent of the strength of any baseline agent.
-        var simulation = new GameSimulation(new HideAndSeekGame(new(60, 0)));
+        var simulation = new GameSimulation(new HideAndSeekGame(physics, new(60, 0)), renderer: renderer);
         var initial = simulation.Snapshot();
         var goal = initial.View.Entities.Single(e => e.AgentId == 2).Position;
         var waypoints = new Queue<Vector3>([new(-9.5f, 0.6f, -7.8f), new(9.5f, 0.6f, -7.8f), goal]);
@@ -105,7 +126,7 @@ public sealed class SimulationTests
             simulation.Tick();
         }
         Assert.Equal("seekers", simulation.Snapshot().View.Winner);
-    }
+    });
 
     [Theory]
     [InlineData(1)]

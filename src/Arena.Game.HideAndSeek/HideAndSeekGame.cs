@@ -7,11 +7,10 @@ public sealed record HideAndSeekOptions(int RoundSeconds = 60, int HidingSeconds
 
 public sealed class HideAndSeekGame : IGameModule
 {
-    private static readonly Vector2 ArenaSize = new(24, 18);
     private static readonly Vector3 ActorSize = new(0.8f, 1.2f, 0.8f);
+    private readonly ICharacterWorld physics;
     private readonly HideAndSeekOptions options;
     private readonly SceneEntity[] scenery;
-    private readonly SceneEntity[] obstacles;
     private readonly List<GameEvent> events = [];
     private SceneEntity seeker = null!;
     private SceneEntity hider = null!;
@@ -20,14 +19,14 @@ public sealed class HideAndSeekGame : IGameModule
     private int hidingTicks;
     private string winner = "";
 
-    public HideAndSeekGame(HideAndSeekOptions? options = null)
+    public HideAndSeekGame(ICharacterWorld physics, HideAndSeekOptions? options = null)
     {
+        this.physics = physics;
         this.options = options ?? new();
         if (this.options.RoundSeconds is < 1 or > 3600 || this.options.HidingSeconds < 0
             || this.options.HidingSeconds >= this.options.RoundSeconds)
             throw new ArgumentException("Round duration must be 1..3600 seconds, with a shorter hiding phase.");
         scenery = CreateScenery();
-        obstacles = scenery.Where(e => e.Solid).ToArray();
     }
 
     public string Id => "hide-and-seek";
@@ -42,9 +41,10 @@ public sealed class HideAndSeekGame : IGameModule
     {
         var random = new Random(seed);
         seeker = new SceneEntity(1, "agent", 1, "seekers", new(-9.5f, 0.6f, random.Next(-2, 3) + 0.5f),
-            ActorSize, new Rgba(255, 112, 100), YawRadians: MathF.PI / 2);
+            ActorSize, new Rgba(255, 112, 100), Shape: PrimitiveShape.Capsule, YawRadians: MathF.PI / 2);
         hider = new SceneEntity(2, "agent", 2, "hiders", new(9.5f, 0.6f, random.Next(-2, 3) + 0.5f),
-            ActorSize, new Rgba(57, 216, 193), YawRadians: -MathF.PI / 2);
+            ActorSize, new Rgba(57, 216, 193), Shape: PrimitiveShape.Capsule, YawRadians: -MathF.PI / 2);
+        physics.Reset(scenery, [seeker, hider], tickRate);
         currentFrame = 0;
         roundTicks = options.RoundSeconds * tickRate;
         hidingTicks = options.HidingSeconds * tickRate;
@@ -57,9 +57,11 @@ public sealed class HideAndSeekGame : IGameModule
         if (IsFinished) return;
         events.Clear();
         currentFrame = frame.Frame;
-        hider = Move(hider, actions.GetValueOrDefault(2), 3.5f, frame.DeltaSeconds);
-        if (frame.Frame > hidingTicks)
-            seeker = Move(seeker, actions.GetValueOrDefault(1), 4.4f, frame.DeltaSeconds);
+        hider = Drive(hider, actions.GetValueOrDefault(2), 3.5f, frame.DeltaSeconds);
+        seeker = Drive(seeker, frame.Frame > hidingTicks ? actions.GetValueOrDefault(1) : AgentAction.Idle, 4.4f, frame.DeltaSeconds);
+        physics.Advance();
+        hider = hider with { Position = physics.Position(hider.Id) };
+        seeker = seeker with { Position = physics.Position(seeker.Id) };
 
         if (frame.Frame == hidingTicks + 1)
             events.Add(new("search-started", "The seeker is now moving."));
@@ -94,23 +96,20 @@ public sealed class HideAndSeekGame : IGameModule
             60, 40, Array.AsReadOnly(scenery.Append(other).ToArray()), agentId == 1 && currentFrame < hidingTicks);
     }
 
-    private SceneEntity Move(SceneEntity actor, AgentAction action, float speed, float dt)
+    private SceneEntity Drive(SceneEntity actor, AgentAction action, float speed, float dt)
     {
         var yaw = MathF.IEEERemainder(actor.YawRadians + action.Turn * MathF.PI * dt, 2 * MathF.PI);
         var right = new Vector3(MathF.Cos(yaw), 0, MathF.Sin(yaw));
         var direction = right * action.Move.X + Forward(yaw) * action.Move.Z;
         if (direction.LengthSquared() > 1) direction = Vector3.Normalize(direction);
-        return actor with
-        {
-            Position = Geometry.MoveOnGround(actor.Position, actor.Size, direction * speed * dt, ArenaSize, obstacles),
-            YawRadians = yaw
-        };
+        physics.Drive(actor.Id, direction * speed, action.Ability == "jump");
+        return actor with { YawRadians = yaw };
     }
 
     private static Vector3 Forward(float yaw) => new(MathF.Sin(yaw), 0, -MathF.Cos(yaw));
 
     private bool HasLineOfSight(SceneEntity a, SceneEntity b) =>
-        !obstacles.Any(box => Geometry.SegmentIntersectsBox(a.Position + Vector3.UnitY * 0.3f, b.Position + Vector3.UnitY * 0.3f, box));
+        !physics.IsOccluded(a.Position + Vector3.UnitY * 0.3f, b.Position + Vector3.UnitY * 0.3f);
 
     private static SceneEntity[] CreateScenery()
     {
@@ -118,7 +117,7 @@ public sealed class HideAndSeekGame : IGameModule
         var low = new Rgba(111, 135, 151);
         return
         [
-            new(100, "floor", 0, "", new(0, -0.15f, 0), new(24, 0.3f, 18), new Rgba(29, 43, 60)),
+            new(100, "floor", 0, "", new(0, -0.15f, 0), new(24, 0.3f, 18), new Rgba(29, 43, 60), true),
             new(101, "wall", 0, "", new(-4, 1, -3), new(2, 2, 6), wall, true),
             new(102, "wall", 0, "", new(4, 1, 3), new(2, 2, 6), wall, true),
             new(103, "wall", 0, "", new(0, 1, -6), new(5, 2, 2), wall, true),

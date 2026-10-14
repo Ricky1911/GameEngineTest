@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="../Arena.Engine/Arena.Engine.csproj" />
-    <PackageReference Include="Raylib-cs" />
+    <PackageReference Include="Stride.Engine" />
+    <PackageReference Include="Stride.BepuPhysics" />
   </ItemGroup>
 </Project>

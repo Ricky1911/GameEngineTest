@@ -22,10 +22,13 @@ public static class DemoHost
         } : null;
         builder.Services.AddSingleton(options);
         builder.Services.AddSingleton(tokens ?? new AccessTokens());
-        builder.Services.AddSingleton(new GameSimulation(new HideAndSeekGame(new(options.RoundSeconds)),
-            options.TickRate, options.Seed, controllers, new SoftwareCameraRenderer()));
-        builder.Services.AddSingleton<SimulationRuntime>();
-        builder.Services.AddHostedService(provider => provider.GetRequiredService<SimulationRuntime>());
+        builder.Services.AddSingleton(_ => new StrideHost(
+            new StrideRunOptions(options.Headless, options.Manual, options.InitialView, options.ExitAfterFrames,
+                options.Screenshot, $"127.0.0.1:{options.Port}"),
+            (physics, renderer) => new GameSimulation(new HideAndSeekGame(physics, new(options.RoundSeconds)),
+                options.TickRate, options.Seed, controllers, renderer)));
+        builder.Services.AddSingleton(provider => provider.GetRequiredService<StrideHost>().Dispatcher);
+        builder.Services.AddHostedService<SimulationRuntime>();
         var app = builder.Build();
         app.MapGrpcService<AgentService>();
         app.MapGrpcService<RefereeService>();

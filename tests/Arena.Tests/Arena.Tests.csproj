@@ -2,6 +2,7 @@
   <PropertyGroup>
     <IsTestProject>true</IsTestProject>
     <IsPackable>false</IsPackable>
+    <StrideIsExecutable>true</StrideIsExecutable>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Arena.Demo/Arena.Demo.csproj" />
@@ -9,6 +10,7 @@
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
     <PackageReference Include="Grpc.Net.Client" />
+    <PackageReference Include="Stride.AssetCompiler" IncludeAssets="build;buildTransitive" />
     <Using Include="Xunit" />
   </ItemGroup>
 </Project>

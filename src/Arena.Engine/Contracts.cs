@@ -3,7 +3,7 @@ using System.Numerics;
 namespace Arena.Engine;
 
 public readonly record struct Rgba(byte R, byte G, byte B, byte A = 255);
-public enum PrimitiveShape { Box, Sphere }
+public enum PrimitiveShape { Box, Sphere, Capsule }
 public sealed record AgentDefinition(int Id, string Name, string Team);
 
 public sealed record SceneEntity(

@@ -32,9 +32,9 @@ internal static class ProtocolMapping
         Rgb24 = ByteString.CopyFrom(source.Image.Pixels.Span)
     };
 
-    public static Task<T> Invoke<T>(Func<T> action)
+    public static async Task<T> Invoke<T>(Func<Task<T>> action)
     {
-        try { return Task.FromResult(action()); }
+        try { return await action(); }
         catch (SimulationException exception)
         {
             var status = exception.Error switch
