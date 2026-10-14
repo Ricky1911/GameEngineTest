@@ -4,6 +4,7 @@ internal sealed record BotOptions
 {
     public string Url { get; init; } = "http://127.0.0.1:50051";
     public bool Match { get; init; }
+    public string Role { get; init; } = "seeker";
     public string Token { get; init; } = Environment.GetEnvironmentVariable("ARENA_SEEKER_TOKEN") ?? "";
     public string HiderToken { get; init; } = Environment.GetEnvironmentVariable("ARENA_HIDER_TOKEN") ?? "";
     public string RefereeToken { get; init; } = Environment.GetEnvironmentVariable("ARENA_REFEREE_TOKEN") ?? "";
@@ -21,6 +22,7 @@ internal sealed record BotOptions
             result = args[i] switch
             {
                 "--match" => result with { Match = true },
+                "--role" => result with { Role = Value() },
                 "--url" => result with { Url = Value() },
                 "--token" => result with { Token = Value() },
                 "--hider-token" => result with { HiderToken = Value() },
@@ -31,6 +33,8 @@ internal sealed record BotOptions
                 _ => throw new ArgumentException($"Unknown option: {args[i]}")
             };
         }
+        if (result.Role is not ("seeker" or "hider"))
+            throw new ArgumentException("Role must be seeker or hider.");
         if (string.IsNullOrWhiteSpace(result.Token))
             throw new ArgumentException("Provide --token or ARENA_SEEKER_TOKEN from the server console.");
         if (result.Match && (string.IsNullOrWhiteSpace(result.HiderToken) || string.IsNullOrWhiteSpace(result.RefereeToken)))

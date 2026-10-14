@@ -28,6 +28,7 @@ public sealed class SimulationTests
         simulation.Submit(1, episode, 1, AgentAction.Idle);
         Assert.Equal(SimulationError.AlreadyExists, Assert.Throws<SimulationException>(() => simulation.Submit(1, episode, 1, AgentAction.Idle)).Error);
         Assert.Equal(SimulationError.InvalidArgument, Assert.Throws<SimulationException>(() => simulation.Submit(1, episode, 2, new(new(float.NaN, 0, 0)))).Error);
+        Assert.Equal(SimulationError.InvalidArgument, Assert.Throws<SimulationException>(() => simulation.Submit(1, episode, 2, new(Vector3.Zero, Turn: float.PositiveInfinity))).Error);
         Assert.Throws<SimulationException>(() => simulation.Submit(1, episode, simulation.MaxActionLead + 1, AgentAction.Idle));
         simulation.Tick();
         Assert.Throws<SimulationException>(() => simulation.Submit(1, episode, 1, AgentAction.Idle));
@@ -86,9 +87,23 @@ public sealed class SimulationTests
     [Fact]
     public void CatchingEndsRoundWithSeekerWinner()
     {
-        var simulation = new GameSimulation(new HideAndSeekGame(new(60, 0)), controllers:
-            new Dictionary<int, IAgentController> { [1] = new DemoController() });
-        for (var i = 0; i < 1200 && !simulation.Snapshot().View.Finished; i++) simulation.Tick();
+        // Referee-driven route around cover, independent of the strength of any baseline agent.
+        var simulation = new GameSimulation(new HideAndSeekGame(new(60, 0)));
+        var initial = simulation.Snapshot();
+        var goal = initial.View.Entities.Single(e => e.AgentId == 2).Position;
+        var waypoints = new Queue<Vector3>([new(-9.5f, 0.6f, -7.8f), new(9.5f, 0.6f, -7.8f), goal]);
+        for (var i = 0; i < 1200 && !simulation.Snapshot().View.Finished; i++)
+        {
+            var state = simulation.Snapshot();
+            var own = state.View.Entities.Single(e => e.AgentId == 1);
+            var delta = waypoints.Peek() - own.Position;
+            if (delta.Length() < 0.15f && waypoints.Count > 1) { waypoints.Dequeue(); delta = waypoints.Peek() - own.Position; }
+            var direction = Vector3.Normalize(delta) * MathF.Min(1, delta.Length() * 20 / 4.4f);
+            var forward = new Vector3(MathF.Sin(own.YawRadians), 0, -MathF.Cos(own.YawRadians));
+            var right = new Vector3(MathF.Cos(own.YawRadians), 0, MathF.Sin(own.YawRadians));
+            simulation.Submit(1, state.Episode, state.Frame + 1, new(new(Vector3.Dot(direction, right), 0, Vector3.Dot(direction, forward))));
+            simulation.Tick();
+        }
         Assert.Equal("seekers", simulation.Snapshot().View.Winner);
     }
 
@@ -116,7 +131,8 @@ public sealed class SimulationTests
         public bool IsFinished => false;
         public void Reset(int seed, int tickRate) => position = Vector3.Zero;
         public void Tick(FrameContext frame, IReadOnlyDictionary<int, AgentAction> actions) => position += actions[1].Move * frame.DeltaSeconds;
-        public GameView Capture(int observerId) => new("moving", false, "", 0,
+        public GameView Capture() => new("moving", false, "", 0,
             [new SceneEntity(1, "agent", 1, "test", position, Vector3.One, new Rgba(255, 255, 255))], []);
+        public CameraScene CaptureCamera(int agentId) => new(position, -Vector3.UnitZ, Vector3.UnitY, 60, 40, []);
     }
 }

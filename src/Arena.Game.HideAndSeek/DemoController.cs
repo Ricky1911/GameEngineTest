@@ -3,65 +3,49 @@ using Arena.Engine;
 
 namespace Arena.Game.HideAndSeek;
 
-/// <summary>A small baseline agent, using only its filtered observation and grid pathfinding.</summary>
-public sealed class DemoController : IAgentController
+/// <summary>A deliberately small vision baseline: color tracking and image-space wall avoidance.</summary>
+/// <param name="seeker">The assigned role is match configuration, not an observation of the world.</param>
+public sealed class DemoController(bool seeker) : IAgentController
 {
-    private static readonly (int X, int Z)[] Neighbors = [(1, 0), (0, 1), (-1, 0), (0, -1)];
-    private static readonly Vector3[] Patrol = [new(9.5f, 0, 6.5f), new(-9.5f, 0, 6.5f), new(-9.5f, 0, -6.5f), new(9.5f, 0, -6.5f)];
-
-    public AgentAction Decide(WorldSnapshot observation)
+    public AgentAction Decide(ImageObservation observation)
     {
-        var own = observation.View.Entities.Single(e => e.AgentId == observation.ObserverId);
-        var enemy = observation.View.Entities.FirstOrDefault(e => e.AgentId != 0 && e.AgentId != own.AgentId);
-        var floor = observation.View.Entities.Single(e => e.Kind == "floor");
-        var obstacles = observation.View.Entities.Where(e => e.Solid).ToArray();
-        var isSeeker = own.Team == "seekers";
-        var patrolIndex = (int)(observation.Frame / (observation.TickRate * 7)) + (isSeeker ? 0 : 2);
-        var target = Patrol[patrolIndex % Patrol.Length];
-        if (enemy is not null)
-            target = isSeeker ? enemy.Position
-                : Patrol.MaxBy(p => Vector3.DistanceSquared(p, enemy.Position));
-
-        var waypoint = FindWaypoint(own, target, floor.Size, obstacles);
-        var delta = waypoint - own.Position;
-        delta.Y = 0;
-        var distance = delta.Length();
-        if (distance < 0.02f) return AgentAction.Idle;
-        // Slow down near a waypoint so a frame cannot overshoot it.
-        var speed = isSeeker ? 4.4f : 3.5f;
-        return new AgentAction(delta / distance * MathF.Min(1, distance * observation.TickRate / speed));
-    }
-
-    private static Vector3 FindWaypoint(SceneEntity own, Vector3 target, Vector3 arena, SceneEntity[] obstacles)
-    {
-        var width = (int)arena.X;
-        var depth = (int)arena.Z;
-        (int X, int Z) Cell(Vector3 p) => (Math.Clamp((int)MathF.Floor(p.X + width / 2f), 0, width - 1),
-            Math.Clamp((int)MathF.Floor(p.Z + depth / 2f), 0, depth - 1));
-        Vector3 Center((int X, int Z) cell) => new(cell.X - width / 2f + 0.5f, own.Position.Y, cell.Z - depth / 2f + 0.5f);
-        var start = Cell(own.Position);
-        var goal = Cell(target);
-        if (start == goal) return target;
-        var previous = new Dictionary<(int, int), (int, int)> { [start] = start };
-        var queue = new Queue<(int X, int Z)>();
-        queue.Enqueue(start);
-        while (queue.TryDequeue(out var current))
+        if (observation.Finished) return AgentAction.Idle;
+        var image = observation.Image;
+        var pixels = image.Pixels.Span;
+        long targetX = 0;
+        var targets = 0;
+        var lit = false;
+        var walls = 0;
+        var samples = 0;
+        for (var y = 0; y < image.Height; y += 2)
         {
-            if (current == goal)
+            for (var x = 0; x < image.Width; x += 2)
             {
-                var next = current;
-                while (previous[next] != start) next = previous[next];
-                return Center(next);
-            }
-            foreach (var offset in Neighbors)
-            {
-                var next = (X: current.X + offset.X, Z: current.Z + offset.Z);
-                if (next.X < 0 || next.X >= width || next.Z < 0 || next.Z >= depth || previous.ContainsKey(next)) continue;
-                if (obstacles.Any(box => Geometry.OverlapsXZ(Center(next), own.Size, box))) continue;
-                previous[next] = current;
-                queue.Enqueue(next);
+                var index = (y * image.Width + x) * 3;
+                var r = pixels[index];
+                var g = pixels[index + 1];
+                var b = pixels[index + 2];
+                lit |= r != 0 || g != 0 || b != 0;
+                var target = seeker ? g > 90 && g > r * 1.6f && g > b * 1.02f
+                    : r > 100 && r > g * 1.5f && r > b * 1.5f;
+                if (target) { targets++; targetX += x; }
+                if (x > image.Width * 0.4f && x < image.Width * 0.6f && y > image.Height * 0.65f && y < image.Height * 0.85f)
+                {
+                    samples++;
+                    if (b > 82 && g > 60 && b > r && !target) walls++;
+                }
             }
         }
-        return own.Position;
+        if (!lit) return AgentAction.Idle;
+        if (targets >= 3)
+        {
+            var error = ((float)targetX / targets / image.Width - 0.5f) * 2;
+            if (!seeker) return new AgentAction(new Vector3(0, 0, 0.8f), Turn: error >= 0 ? -1 : 1);
+            return new AgentAction(new Vector3(0, 0, 0.85f), Turn: Math.Clamp(error * 1.8f, -1, 1));
+        }
+        // No map, pathfinding, positions or hidden opponent state is available here.
+        if (samples > 0 && walls > samples * 0.5f)
+            return new AgentAction(new Vector3(0, 0, 0.1f), Turn: 1);
+        return new AgentAction(new Vector3(0, 0, 0.85f), Turn: observation.Frame % 180 < 30 ? 0.3f : 0);
     }
 }

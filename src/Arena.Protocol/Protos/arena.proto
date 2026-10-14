@@ -1,10 +1,10 @@
 syntax = "proto3";
-package arena.v1;
+package arena.v2;
 option csharp_namespace = "Arena.Protocol";
 
 // Competitors receive one agent token. Identity comes from the token, not an agent ID in the request.
 service AgentGateway {
-  rpc Observe (ObserveRequest) returns (Snapshot);
+  rpc Observe (ObserveRequest) returns (ImageObservation);
   rpc SubmitAction (ActionRequest) returns (ActionReceipt);
 }
 
@@ -16,6 +16,17 @@ service RefereeGateway {
 }
 
 message ObserveRequest { string token = 1; }
+// The ONLY observation exposed to competitors. RGB24: tightly packed R,G,B bytes,
+// rows top-to-bottom, pixels left-to-right. No HUD, entity annotations or hidden-state channels.
+// Episode/frame are used to address actions; finished is only an episode lifecycle signal.
+message ImageObservation {
+  int64 episode = 1;
+  int64 frame = 2;
+  int32 width = 3;
+  int32 height = 4;
+  bytes rgb24 = 5;
+  bool finished = 6;
+}
 message RefereeRequest { string token = 1; }
 message Vector3 { float x = 1; float y = 2; float z = 3; }
 message Color { uint32 r = 1; uint32 g = 2; uint32 b = 3; uint32 a = 4; }
@@ -30,6 +41,7 @@ message Entity {
   Color color = 7;
   bool solid = 8;
   Shape shape = 9;
+  float yaw_radians = 10; // referee only
 }
 message Event { string kind = 1; string message = 2; }
 message Snapshot {
@@ -37,21 +49,22 @@ message Snapshot {
   int64 frame = 2;
   int32 tick_rate = 3;
   string game_id = 4;
-  int32 observer_id = 5; // 0 = referee; positive = own agent ID
+  reserved 5; // former observer_id; Snapshot is now referee-only
   string phase = 6;
   bool finished = 7;
   string winner = 8;
   int32 remaining_ticks = 9;
   repeated Entity entities = 10;
   repeated Event events = 11; // events of this completed frame, not a durable event stream
-  optional int32 seed = 12; // referee only; never exposes spawn randomness to competitors
+  int32 seed = 12; // referee only
 }
 message ActionRequest {
   string token = 1;
   int64 episode = 2;
   int64 target_frame = 3;
-  Vector3 move = 4; // length clamped to 1; the example game uses X/Z
+  Vector3 move = 4; // length clamped to 1; demo: X=strafe right, Z=forward, Y=unused
   string ability = 5; // reserved for game-specific actions; unused in this example
+  float turn = 6; // [-1,1], positive turns right; demo maximum = 180 degrees/sec
 }
 message ActionReceipt { int64 episode = 1; int64 target_frame = 2; }
 message StepRequest {

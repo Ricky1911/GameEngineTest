@@ -42,9 +42,9 @@ public sealed class HideAndSeekGame : IGameModule
     {
         var random = new Random(seed);
         seeker = new SceneEntity(1, "agent", 1, "seekers", new(-9.5f, 0.6f, random.Next(-2, 3) + 0.5f),
-            ActorSize, new Rgba(255, 112, 100));
+            ActorSize, new Rgba(255, 112, 100), YawRadians: MathF.PI / 2);
         hider = new SceneEntity(2, "agent", 2, "hiders", new(9.5f, 0.6f, random.Next(-2, 3) + 0.5f),
-            ActorSize, new Rgba(57, 216, 193));
+            ActorSize, new Rgba(57, 216, 193), YawRadians: -MathF.PI / 2);
         currentFrame = 0;
         roundTicks = options.RoundSeconds * tickRate;
         hidingTicks = options.HidingSeconds * tickRate;
@@ -75,35 +75,39 @@ public sealed class HideAndSeekGame : IGameModule
         }
     }
 
-    public GameView Capture(int observerId)
+    public GameView Capture()
     {
-        var entities = new List<SceneEntity>(scenery);
-        var own = observerId == 1 ? seeker : hider;
-        var other = observerId == 1 ? hider : seeker;
-        if (observerId == 0)
-        {
-            entities.Add(seeker);
-            entities.Add(hider);
-        }
-        else
-        {
-            entities.Add(own);
-            // The seeker cannot see the hider during the hiding phase. Sight is 360 degrees.
-            var canLook = observerId != 1 || currentFrame >= hidingTicks;
-            if (canLook && Vector3.Distance(own.Position, other.Position) <= 9f && HasLineOfSight(own, other))
-                entities.Add(other);
-        }
+        var entities = new List<SceneEntity>(scenery) { seeker, hider };
         var phase = IsFinished ? "finished" : currentFrame < hidingTicks ? "hiding" : "seeking";
         return new GameView(phase, IsFinished, winner, (int)Math.Max(0, roundTicks - currentFrame),
             entities.AsReadOnly(), Array.AsReadOnly(events.ToArray()));
     }
 
+    public CameraScene CaptureCamera(int agentId)
+    {
+        if (agentId is not (1 or 2)) throw new ArgumentOutOfRangeException(nameof(agentId));
+        var own = agentId == 1 ? seeker : hider;
+        var other = agentId == 1 ? hider : seeker;
+        // Include all geometry: the renderer resolves per-pixel occlusion and field of view.
+        // Exclude the observer's own body, which otherwise surrounds its eye.
+        return new CameraScene(own.Position + Vector3.UnitY * 0.3f, Forward(own.YawRadians), Vector3.UnitY,
+            60, 40, Array.AsReadOnly(scenery.Append(other).ToArray()), agentId == 1 && currentFrame < hidingTicks);
+    }
+
     private SceneEntity Move(SceneEntity actor, AgentAction action, float speed, float dt)
     {
-        var direction = new Vector3(action.Move.X, 0, action.Move.Z);
+        var yaw = MathF.IEEERemainder(actor.YawRadians + action.Turn * MathF.PI * dt, 2 * MathF.PI);
+        var right = new Vector3(MathF.Cos(yaw), 0, MathF.Sin(yaw));
+        var direction = right * action.Move.X + Forward(yaw) * action.Move.Z;
         if (direction.LengthSquared() > 1) direction = Vector3.Normalize(direction);
-        return actor with { Position = Geometry.MoveOnGround(actor.Position, actor.Size, direction * speed * dt, ArenaSize, obstacles) };
+        return actor with
+        {
+            Position = Geometry.MoveOnGround(actor.Position, actor.Size, direction * speed * dt, ArenaSize, obstacles),
+            YawRadians = yaw
+        };
     }
+
+    private static Vector3 Forward(float yaw) => new(MathF.Sin(yaw), 0, -MathF.Cos(yaw));
 
     private bool HasLineOfSight(SceneEntity a, SceneEntity b) =>
         !obstacles.Any(box => Geometry.SegmentIntersectsBox(a.Position + Vector3.UnitY * 0.3f, b.Position + Vector3.UnitY * 0.3f, box));
@@ -121,7 +125,11 @@ public sealed class HideAndSeekGame : IGameModule
             new(104, "wall", 0, "", new(0, 1, 6), new(5, 2, 2), wall, true),
             new(105, "wall", 0, "", new(0, 1, 0), new(2, 2, 3), wall, true),
             new(106, "crate", 0, "", new(-7.5f, 0.65f, 4), new(2, 1.3f, 2), low, true),
-            new(107, "crate", 0, "", new(7.5f, 0.65f, -4), new(2, 1.3f, 2), low, true)
+            new(107, "crate", 0, "", new(7.5f, 0.65f, -4), new(2, 1.3f, 2), low, true),
+            new(108, "wall", 0, "", new(-12.15f, 1.25f, 0), new(0.3f, 2.5f, 18.6f), wall, true),
+            new(109, "wall", 0, "", new(12.15f, 1.25f, 0), new(0.3f, 2.5f, 18.6f), wall, true),
+            new(110, "wall", 0, "", new(0, 1.25f, -9.15f), new(24, 2.5f, 0.3f), wall, true),
+            new(111, "wall", 0, "", new(0, 1.25f, 9.15f), new(24, 2.5f, 0.3f), wall, true)
         ];
     }
 }

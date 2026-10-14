@@ -8,6 +8,7 @@ public sealed record DemoOptions
     public int Port { get; init; } = 50051;
     public int TickRate { get; init; } = 20;
     public int Seed { get; init; } = 42;
+    public int InitialView { get; init; }
     public int RoundSeconds { get; init; } = 60;
     public int? ExitAfterFrames { get; init; }
     public string? Screenshot { get; init; }
@@ -27,6 +28,7 @@ public sealed record DemoOptions
                 "--port" => result with { Port = Number() },
                 "--tick-rate" => result with { TickRate = Number() },
                 "--seed" => result with { Seed = Number() },
+                "--view" => result with { InitialView = Number() },
                 "--round-seconds" => result with { RoundSeconds = Number() },
                 "--exit-after-frames" => result with { ExitAfterFrames = Number() },
                 "--screenshot" => result with { Screenshot = Value() },
@@ -37,6 +39,8 @@ public sealed record DemoOptions
             throw new ArgumentException("Port must be 1..65535, tick rate 1..120, round seconds 4..3600.");
         if (result.ExitAfterFrames is < 1 || result.Headless && result.Screenshot is not null)
             throw new ArgumentException("Exit frame must be positive; screenshots require a window.");
+        if (result.InitialView is < 0 or > 2)
+            throw new ArgumentException("View must be 0 (spectator), 1 (seeker), or 2 (hider).");
         return result;
     }
 }

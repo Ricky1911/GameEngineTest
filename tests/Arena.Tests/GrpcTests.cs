@@ -2,6 +2,7 @@ using Arena.Demo;
 using Arena.Protocol;
 using Grpc.Core;
 using Grpc.Net.Client;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Arena.Tests;
 
@@ -19,9 +20,17 @@ public sealed class GrpcTests
             var agent = new AgentGateway.AgentGatewayClient(channel);
             var referee = new RefereeGateway.RefereeGatewayClient(channel);
             var observation = await agent.ObserveAsync(new ObserveRequest { Token = tokens.Seeker });
-            Assert.Equal(1, observation.ObserverId);
-            Assert.False(observation.HasSeed);
-            Assert.Single(observation.Entities, e => e.AgentId != 0);
+            Assert.Equal(320, observation.Width);
+            Assert.Equal(180, observation.Height);
+            Assert.Equal(320 * 180 * 3, observation.Rgb24.Length);
+            Assert.All(observation.Rgb24.ToByteArray(), b => Assert.Equal(0, b));
+            var hiderImage = await agent.ObserveAsync(new ObserveRequest { Token = tokens.Hider });
+            var engineImage = app.Services.GetRequiredService<Engine.GameSimulation>().Observe(2);
+            Assert.Equal(engineImage.Image.Pixels.ToArray(), hiderImage.Rgb24.ToByteArray());
+            Assert.Contains(hiderImage.Rgb24.ToByteArray(), b => b != 0);
+            // Schema whitelist prevents accidental reintroduction of structured game-state fields.
+            Assert.Equal(new[] { "episode", "frame", "width", "height", "rgb24", "finished" },
+                ImageObservation.Descriptor.Fields.InFieldNumberOrder().Select(f => f.Name).ToArray());
             var denied = await Assert.ThrowsAsync<RpcException>(async () =>
                 await referee.InspectAsync(new RefereeRequest { Token = tokens.Seeker }));
             Assert.Equal(StatusCode.Unauthenticated, denied.StatusCode);
@@ -29,9 +38,9 @@ public sealed class GrpcTests
                 await agent.ObserveAsync(new ObserveRequest { Token = "invalid" }));
             Assert.Equal(StatusCode.Unauthenticated, invalid.StatusCode);
             var all = await referee.InspectAsync(new RefereeRequest { Token = tokens.Referee });
-            Assert.True(all.HasSeed);
+            Assert.Equal(42, all.Seed);
             Assert.Equal(2, all.Entities.Count(e => e.AgentId != 0));
-            var before = all.Entities.Single(e => e.AgentId == 2).Position.Z;
+            var before = all.Entities.Single(e => e.AgentId == 2).Position.X;
             var action = new ActionRequest
             {
                 Token = tokens.Hider, Episode = all.Episode, TargetFrame = 1, Move = new Protocol.Vector3 { Z = 1 }
@@ -42,7 +51,7 @@ public sealed class GrpcTests
             var step = new StepRequest { Token = tokens.Referee, Episode = all.Episode, ExpectedFrame = 0, Count = 1 };
             var advanced = await referee.StepAsync(step);
             Assert.Equal(1, advanced.Frame);
-            Assert.True(advanced.Entities.Single(e => e.AgentId == 2).Position.Z > before);
+            Assert.True(advanced.Entities.Single(e => e.AgentId == 2).Position.X < before);
             var repeatedStep = await Assert.ThrowsAsync<RpcException>(async () => await referee.StepAsync(step));
             Assert.Equal(StatusCode.FailedPrecondition, repeatedStep.StatusCode);
             var reset = await referee.ResetAsync(new ResetRequest { Token = tokens.Referee, Seed = 42 });

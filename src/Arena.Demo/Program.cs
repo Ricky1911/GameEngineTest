@@ -10,7 +10,7 @@ public static class Program
     {
         if (args.Contains("--help"))
         {
-            Console.WriteLine("Arena.Demo [--headless] [--manual] [--no-bots] [--port 50051] [--tick-rate 20] [--seed 42] [--round-seconds 60] [--exit-after-frames N] [--screenshot path.png]");
+            Console.WriteLine("Arena.Demo [--headless] [--manual] [--no-bots] [--port 50051] [--tick-rate 20] [--seed 42] [--round-seconds 60] [--view 0|1|2] [--exit-after-frames N] [--screenshot path.png]");
             return 0;
         }
         try { return Run(DemoOptions.Parse(args)); }
@@ -46,10 +46,10 @@ public static class Program
                     try { simulation.Advance(current.Episode, current.Frame, 1); }
                     catch (SimulationException) { /* A concurrent referee already advanced. */ }
                 }
-                SceneWindow.Run(simulation.Snapshot,
+                SceneWindow.Run(simulation.Snapshot, simulation.Observe,
                     new WindowControls(runtime.TogglePause, Step, () => simulation.Reset(simulation.Snapshot().Seed),
                         () => runtime.IsPaused, options.Manual, $"127.0.0.1:{options.Port}"),
-                    app.Lifetime.ApplicationStopping, options.ExitAfterFrames, options.Screenshot);
+                    app.Lifetime.ApplicationStopping, options.ExitAfterFrames, options.Screenshot, options.InitialView);
             }
             return 0;
         }

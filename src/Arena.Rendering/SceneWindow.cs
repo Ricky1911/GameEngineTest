@@ -14,8 +14,9 @@ public static class SceneWindow
     private static readonly Color Muted = new(148, 168, 190);
     private static readonly Color Accent = new(86, 226, 198);
 
-    public static void Run(Func<int, WorldSnapshot> observe, WindowControls controls, CancellationToken cancellation,
-        int? exitAfterFrames = null, string? screenshot = null)
+    public static void Run(Func<WorldSnapshot> inspect, Func<int, ImageObservation> observe,
+        WindowControls controls, CancellationToken cancellation,
+        int? exitAfterFrames = null, string? screenshot = null, int initialView = 0)
     {
         Raylib.SetConfigFlags(ConfigFlags.ResizableWindow | ConfigFlags.Msaa4xHint);
         Raylib.SetTraceLogLevel(TraceLogLevel.Warning);
@@ -25,7 +26,8 @@ public static class SceneWindow
         var yaw = 0.67f;
         var elevation = 0.82f;
         var distance = 36f;
-        var observer = 0;
+        var observer = initialView;
+        var preview = new ObservationTexture();
         var renderedFrames = 0;
         try
         {
@@ -36,7 +38,7 @@ public static class SceneWindow
                 if (Raylib.IsKeyPressed(KeyboardKey.R)) controls.Reset();
                 if (Raylib.IsKeyPressed(KeyboardKey.Tab))
                 {
-                    var ids = observe(0).View.Entities.Where(e => e.AgentId != 0).Select(e => e.AgentId).Prepend(0).ToArray();
+                    var ids = inspect().View.Entities.Where(e => e.AgentId != 0).Select(e => e.AgentId).Prepend(0).ToArray();
                     observer = ids[(Array.IndexOf(ids, observer) + 1) % ids.Length];
                 }
                 if (Raylib.IsMouseButtonDown(MouseButton.Right))
@@ -46,18 +48,27 @@ public static class SceneWindow
                     elevation = Math.Clamp(elevation + delta.Y * 0.004f, 0.28f, 1.4f);
                 }
                 distance = Math.Clamp(distance - Raylib.GetMouseWheelMove() * 1.6f, 14, 52);
-                var snapshot = observe(observer);
                 var camera = new Camera3D(
                     new Vector3(MathF.Sin(yaw) * MathF.Cos(elevation), MathF.Sin(elevation), MathF.Cos(yaw) * MathF.Cos(elevation)) * distance,
                     new Vector3(0, 0, 0), Vector3.UnitY, 48, CameraProjection.Perspective);
 
+                // Fetch one immutable frame before drawing; agent mode does not use a world snapshot.
+                var snapshot = observer == 0 ? inspect() : null;
+                var image = observer == 0 ? null : observe(observer);
                 Raylib.BeginDrawing();
                 Raylib.ClearBackground(Background);
-                Raylib.BeginMode3D(camera);
-                DrawScene(snapshot);
-                Raylib.EndMode3D();
-                DrawAgentMarkers(snapshot, camera);
-                DrawOverlay(snapshot, controls);
+                if (snapshot is not null)
+                {
+                    Raylib.BeginMode3D(camera);
+                    DrawScene(snapshot);
+                    Raylib.EndMode3D();
+                    DrawAgentMarkers(snapshot, camera);
+                    DrawOverlay(snapshot, controls);
+                }
+                else if (image is not null)
+                {
+                    DrawCameraView(image, observer, controls, preview);
+                }
                 Raylib.EndDrawing();
                 renderedFrames++;
                 if (exitAfterFrames is { } max && renderedFrames >= max)
@@ -66,19 +77,19 @@ public static class SceneWindow
                     {
                         var path = Path.GetFullPath(screenshot);
                         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-                        var image = Raylib.LoadImageFromScreen();
+                        var capture = Raylib.LoadImageFromScreen();
                         try
                         {
-                            if (!Raylib.ExportImage(image, path))
+                            if (!Raylib.ExportImage(capture, path))
                                 throw new IOException($"Could not save screenshot to {path}.");
                         }
-                        finally { Raylib.UnloadImage(image); }
+                        finally { Raylib.UnloadImage(capture); }
                     }
                     break;
                 }
             }
         }
-        finally { Raylib.CloseWindow(); }
+        finally { preview.Dispose(); Raylib.CloseWindow(); }
     }
 
     private static void DrawScene(WorldSnapshot snapshot)
@@ -97,6 +108,8 @@ public static class SceneWindow
             {
                 Raylib.DrawSphere(e.Position + Vector3.UnitY * (e.Size.Y / 2 + 0.23f), 0.21f, color);
                 Raylib.DrawCircle3D(new Vector3(e.Position.X, 0.02f, e.Position.Z), 0.7f, Vector3.UnitX, 90, color);
+                var forward = new Vector3(MathF.Sin(e.YawRadians), 0, -MathF.Cos(e.YawRadians));
+                Raylib.DrawLine3D(e.Position, e.Position + forward * 1.5f, Color.White);
             }
             if (e.Kind == "floor")
             {
@@ -106,6 +119,31 @@ public static class SceneWindow
                     Raylib.DrawLine3D(new(-e.Size.X / 2, 0.015f, z), new(e.Size.X / 2, 0.015f, z), new Color(65, 89, 112, 90));
             }
         }
+    }
+
+    private static void DrawCameraView(ImageObservation observation, int agentId, WindowControls controls, ObservationTexture preview)
+    {
+        var width = Raylib.GetScreenWidth();
+        var height = Raylib.GetScreenHeight();
+        var scale = MathF.Min((width - 48f) / observation.Image.Width, (height - 234f) / observation.Image.Height);
+        var imageWidth = observation.Image.Width * scale;
+        var imageHeight = observation.Image.Height * scale;
+        // All labels are outside this rectangle. This is exactly the image delivered to the agent.
+        preview.Draw(observation.Image, new Rectangle((width - imageWidth) / 2, 126 + (height - 234 - imageHeight) / 2,
+            imageWidth, imageHeight));
+        Raylib.DrawRectangle(0, 0, width, 110, Panel);
+        Raylib.DrawText("A R E N A", 30, 20, 30, Color.RayWhite);
+        Raylib.DrawText("IMAGE-ONLY AGENT OBSERVATION", 30, 65, 16, Muted);
+        Raylib.DrawText($"AGENT {agentId} / FIRST PERSON", 420, 27, 22, Accent);
+        Raylib.DrawText($"FRAME {observation.Frame:00000}   EPISODE {observation.Episode:00}   RGB24 {observation.Image.Width}x{observation.Image.Height}",
+            420, 65, 16, Muted);
+        Raylib.DrawText(observation.Finished ? "FINISHED" : controls.Manual ? "MANUAL" : controls.IsPaused() ? "PAUSED" : "LIVE",
+            width - 170, 27, 23, Accent);
+        Raylib.DrawText("Exact gRPC image pixels / no entity labels or spectator information", 28, height - 99, 16, Muted);
+        Raylib.DrawRectangle(0, height - 78, width, 78, Panel);
+        var modeControls = controls.Manual ? "N: step" : "SPACE: pause";
+        Raylib.DrawText($"TAB: spectator / agent 1 / agent 2   {modeControls}   R: reset   ESC: exit", 28, height - 61, 17, Color.RayWhite);
+        Raylib.DrawText($"gRPC  {controls.Endpoint}    |    Camera direction follows the agent's turn action", 28, height - 29, 15, Muted);
     }
 
     private static void DrawAgentMarkers(WorldSnapshot snapshot, Camera3D camera)
@@ -143,7 +181,7 @@ public static class SceneWindow
         Raylib.DrawText($"FRAME   {s.Frame:00000}", 42, 188, 24, Color.RayWhite);
         Raylib.DrawText($"{s.View.RemainingTicks / (float)s.TickRate:0.0}s remaining", 42, 226, 20, Accent);
         Raylib.DrawText($"Phase: {s.View.Phase}", 42, 263, 18, Muted);
-        Raylib.DrawText(s.ObserverId == 0 ? "View: spectator" : $"View: agent {s.ObserverId}", 42, 301, 18, Color.RayWhite);
+        Raylib.DrawText("View: spectator", 42, 301, 18, Color.RayWhite);
 
         var y = 385;
         foreach (var actor in s.View.Entities.Where(e => e.AgentId != 0))

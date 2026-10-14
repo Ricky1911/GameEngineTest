@@ -10,7 +10,7 @@ internal static class Program
     {
         if (args.Contains("--help"))
         {
-            Console.WriteLine("Arena.Bot [--url http://127.0.0.1:50051] [--token TOKEN] [--match --hider-token TOKEN --referee-token TOKEN] [--seed 42] [--delay-ms 0] [--max-frames 100000]");
+            Console.WriteLine("Arena.Bot [--url http://127.0.0.1:50051] [--token TOKEN] [--role seeker|hider] [--match --hider-token TOKEN --referee-token TOKEN] [--seed 42] [--delay-ms 0] [--max-frames 100000]");
             return 0;
         }
         using var stop = new CancellationTokenSource();
@@ -35,9 +35,9 @@ internal static class Program
 
     private static async Task<int> RunAgent(AgentGateway.AgentGatewayClient client, BotOptions options, CancellationToken stop)
     {
-        var agent = new BaselineAgent();
+        var agent = new BaselineAgent(options.Role == "seeker");
         (long Episode, long Frame) lastAction = (-1, -1);
-        Console.WriteLine("Agent connected. Polling observations and submitting one action per frame.");
+        Console.WriteLine("Vision agent connected. Input: RGB24 image only, plus episode/frame lifecycle metadata.");
         while (!stop.IsCancellationRequested)
         {
             var observation = await client.ObserveAsync(new ObserveRequest { Token = options.Token }, deadline: Deadline(), cancellationToken: stop);
@@ -49,7 +49,7 @@ internal static class Program
                 {
                     await client.SubmitActionAsync(agent.Decide(observation, options.Token), deadline: Deadline(), cancellationToken: stop);
                     lastAction = (observation.Episode, observation.Frame);
-                    if (observation.Frame % observation.TickRate == 0) Print(observation);
+                    if (observation.Frame % 20 == 0) Print(observation);
                 }
                 // Realtime mode may advance while a request is in transit; re-observe next time.
                 catch (RpcException exception) when (exception.StatusCode is StatusCode.FailedPrecondition or StatusCode.AlreadyExists) { }
@@ -63,10 +63,10 @@ internal static class Program
         BotOptions options, CancellationToken stop)
     {
         var tokens = new[] { options.Token, options.HiderToken };
-        var agents = new[] { new BaselineAgent(), new BaselineAgent() };
+        var agents = new[] { new BaselineAgent(seeker: true), new BaselineAgent(seeker: false) };
         // The runner owns the referee token; each Decide call receives only its agent's observation.
         var state = await referee.ResetAsync(new ResetRequest { Token = options.RefereeToken, Seed = options.Seed }, deadline: Deadline(), cancellationToken: stop);
-        Console.WriteLine($"Match started: episode {state.Episode}, seed {options.Seed}, {state.TickRate} Hz.");
+        Console.WriteLine($"Image-only match started: episode {state.Episode}, seed {options.Seed}, {state.TickRate} Hz.");
         while (!state.Finished && state.Frame < options.MaxFrames)
         {
             var observations = await Task.WhenAll(tokens.Select(token => client.ObserveAsync(
@@ -87,6 +87,8 @@ internal static class Program
     }
 
     private static DateTime Deadline() => DateTime.UtcNow.AddSeconds(5);
+    private static void Print(ImageObservation s) => Console.WriteLine(
+        $"frame={s.Frame,5} image={s.Width}x{s.Height} RGB24 bytes={s.Rgb24.Length}{(s.Finished ? " episode_finished" : "")}");
     private static void Print(Snapshot s) => Console.WriteLine(
-        $"frame={s.Frame,5} phase={s.Phase,-8} remaining={s.RemainingTicks / (float)s.TickRate,5:0.0}s visible_agents={s.Entities.Count(e => e.AgentId != 0)}{(s.Finished ? $" winner={s.Winner}" : "")}");
+        $"[referee] frame={s.Frame,5} phase={s.Phase,-8} remaining={s.RemainingTicks / (float)s.TickRate,5:0.0}s{(s.Finished ? $" winner={s.Winner}" : "")}");
 }

@@ -8,7 +8,7 @@ public sealed record AgentDefinition(int Id, string Name, string Team);
 
 public sealed record SceneEntity(
     int Id, string Kind, int AgentId, string Team, Vector3 Position, Vector3 Size,
-    Rgba Color, bool Solid = false, PrimitiveShape Shape = PrimitiveShape.Box);
+    Rgba Color, bool Solid = false, PrimitiveShape Shape = PrimitiveShape.Box, float YawRadians = 0);
 
 public sealed record GameEvent(string Kind, string Message);
 
@@ -17,10 +17,10 @@ public sealed record GameView(
     IReadOnlyList<SceneEntity> Entities, IReadOnlyList<GameEvent> Events);
 
 public sealed record WorldSnapshot(
-    long Episode, long Frame, int TickRate, int Seed, string GameId, int ObserverId, GameView View);
+    long Episode, long Frame, int TickRate, int Seed, string GameId, GameView View);
 
-// Movement is normalized by the engine. Games decide which axes/abilities are meaningful.
-public readonly record struct AgentAction(Vector3 Move, string Ability = "")
+// Movement is normalized by the engine; Turn is clamped to [-1, 1]. Games define their semantics.
+public readonly record struct AgentAction(Vector3 Move, string Ability = "", float Turn = 0)
 {
     public static AgentAction Idle => new(Vector3.Zero);
 }
@@ -31,7 +31,7 @@ public readonly record struct FrameContext(long Frame, int TickRate)
 }
 
 // A module owns its rules and mutable world. Only GameSimulation calls it after construction.
-// Capture must return an immutable snapshot and filter private information for observerId != 0.
+// Capture/CaptureCamera are server-only. Agents receive only rendered ImageObservation values.
 public interface IGameModule
 {
     string Id { get; }
@@ -39,12 +39,13 @@ public interface IGameModule
     bool IsFinished { get; }
     void Reset(int seed, int tickRate);
     void Tick(FrameContext frame, IReadOnlyDictionary<int, AgentAction> actions);
-    GameView Capture(int observerId);
+    GameView Capture();
+    CameraScene CaptureCamera(int agentId);
 }
 
 public interface IAgentController
 {
-    AgentAction Decide(WorldSnapshot observation);
+    AgentAction Decide(ImageObservation observation);
 }
 
 public enum SimulationError { InvalidArgument, FailedPrecondition, AlreadyExists, NotFound }
